@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+
+import math
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import math 
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -10,9 +12,15 @@ from plotly.subplots import make_subplots
 import dash
 import dash_table
 import dash_core_components as dcc
-import dash_html_components as html 
+import dash_html_components as html
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
+
+app = dash.Dash(__name__)
+
+app.scripts.config.serve_locally = True
+app.css.config.serve_locally = True
+
 
 ################################################################################
 #### Data processing
@@ -20,7 +28,7 @@ from dash.dependencies import Input, Output
 # Import xlsx file and store each sheet in to a df list
 xl_file = pd.ExcelFile('./data.xlsx',)
 
-dfs = {sheet_name: xl_file.parse(sheet_name) 
+dfs = {sheet_name: xl_file.parse(sheet_name)
           for sheet_name in xl_file.sheet_names}
 
 # Data from each sheet can be accessed via key
@@ -46,7 +54,7 @@ for key, df in dfs.items():
 # Add coordinates for each area in the list for the latest table sheet
 # To save time, coordinates calling was done seperately
 # Import the data with coordinates
-dfs[keyList[0]]=pd.read_csv('{}_data.csv'.format(keyList[0]))
+dfs[keyList[0]]=pd.read_csv('./data/{}_data.csv'.format(keyList[0]))
 
 # Save numbers into variables to use in the app
 confirmedCases=dfs[keyList[0]]['Confirmed'].sum()
@@ -65,7 +73,7 @@ for key, df in dfs.items():
     DateList.append(df['Date_last_updated_AEDT'][0])
     ChinaList.append(dfTpm['Confirmed'][0])
     OtherList.append(dfTpm['Confirmed'][1:].sum())
-    
+
 df_confirmed = pd.DataFrame({'Date':DateList,
                              'Mainland China':ChinaList,
                              'Other locations':OtherList})
@@ -74,8 +82,38 @@ df_confirmed['date_day']=[d.date() for d in df_confirmed['Date']]
 df_confirmed=df_confirmed.groupby(by=df_confirmed['date_day'], sort=False).transform(max).drop_duplicates(['Date'])
 df_confirmed['Total']=df_confirmed['Mainland China']+df_confirmed['Other locations']
 df_confirmed=df_confirmed.reset_index(drop=True)
-plusConfirmedNum = df_confirmed['Total'][0] - df_confirmed['Total'][1]
-plusPercentNum1 = (df_confirmed['Total'][0] - df_confirmed['Total'][1])/df_confirmed['Total'][1]
+
+# Construct new dataframe for 24-hour window case difference
+DateList = []
+ChinaList =[]
+OtherList = []
+
+for key, df in dfs.items():
+    dfTpm = df.groupby(['Country/Region'])['Confirmed'].agg(np.sum)
+    dfTpm = pd.DataFrame({'Code':dfTpm.index, 'Confirmed':dfTpm.values})
+    dfTpm = dfTpm.sort_values(by='Confirmed', ascending=False).reset_index(drop=True)
+    DateList.append(df['Date_last_updated_AEDT'][0])
+    ChinaList.append(dfTpm['Confirmed'][0])
+    OtherList.append(dfTpm['Confirmed'][1:].sum())
+
+df_confirmed_diff = pd.DataFrame({'Date':DateList,
+                                  'Mainland China':ChinaList,
+                                  'Other locations':OtherList})
+df_confirmed_diff['Total']=df_confirmed_diff['Mainland China']+df_confirmed_diff['Other locations']
+
+# Calculate differenec in a 24-hour window
+for index, _ in df_confirmed_diff.iterrows():
+    # Calculate the time differnece in hour
+    diff=(df_confirmed_diff['Date'][0] - df_confirmed_diff['Date'][index]).total_seconds()/3600
+    # find out the latest time after 24-hour
+    if diff >= 24:
+        break
+if diff > 24:
+    plusConfirmedNum = df_confirmed_diff['Total'][0] - df_confirmed_diff['Total'][index]
+    plusPercentNum1 = (df_confirmed_diff['Total'][0] - df_confirmed_diff['Total'][index])/df_confirmed_diff['Total'][index]
+else:
+    plusConfirmedNum = df_confirmed_diff['Total'][0] - df_confirmed_diff['Total'][index+1]
+    plusPercentNum1 = (df_confirmed_diff['Total'][0] - df_confirmed_diff['Total'][index+1])/df_confirmed_diff['Total'][index]
 
 # Construct recovered cases dataframe for line plot
 DateList = []
@@ -89,17 +127,47 @@ for key, df in dfs.items():
     DateList.append(df['Date_last_updated_AEDT'][0])
     ChinaList.append(dfTpm['Recovered'][0])
     OtherList.append(dfTpm['Recovered'][1:].sum())
-    
+
 df_recovered = pd.DataFrame({'Date':DateList,
                              'Mainland China':ChinaList,
-                             'Other locations':OtherList}) 
+                             'Other locations':OtherList})
 # Select the latest data from a given date
 df_recovered['date_day']=[d.date() for d in df_recovered['Date']]
 df_recovered=df_recovered.groupby(by=df_recovered['date_day'], sort=False).transform(max).drop_duplicates(['Date'])
 df_recovered['Total']=df_recovered['Mainland China']+df_recovered['Other locations']
 df_recovered=df_recovered.reset_index(drop=True)
-plusRecoveredNum = df_recovered['Total'][0] - df_recovered['Total'][1]
-plusPercentNum2 = (df_recovered['Total'][0] - df_recovered['Total'][1])/df_recovered['Total'][1]
+
+# Construct new dataframe for 24-hour window case difference
+DateList = []
+ChinaList =[]
+OtherList = []
+
+for key, df in dfs.items():
+    dfTpm = df.groupby(['Country/Region'])['Recovered'].agg(np.sum)
+    dfTpm = pd.DataFrame({'Code':dfTpm.index, 'Recovered':dfTpm.values})
+    dfTpm = dfTpm.sort_values(by='Recovered', ascending=False).reset_index(drop=True)
+    DateList.append(df['Date_last_updated_AEDT'][0])
+    ChinaList.append(dfTpm['Recovered'][0])
+    OtherList.append(dfTpm['Recovered'][1:].sum())
+
+df_recovered_diff = pd.DataFrame({'Date':DateList,
+                                  'Mainland China':ChinaList,
+                                  'Other locations':OtherList})
+df_recovered_diff['Total']=df_recovered_diff['Mainland China']+df_confirmed_diff['Other locations']
+
+# Calculate differenec in a 24-hour window
+for index, _ in df_recovered_diff.iterrows():
+    # Calculate the time differnece in hour
+    diff=(df_recovered_diff['Date'][0] - df_recovered_diff['Date'][index]).total_seconds()/3600
+    # find out the latest time after 24-hour
+    if diff >= 24:
+        break
+if diff > 24:
+    plusRecoveredNum = df_recovered_diff['Total'][0] - df_recovered_diff['Total'][index]
+    plusPercentNum2 = (df_recovered_diff['Total'][0] - df_recovered_diff['Total'][index])/df_recovered_diff['Total'][index]
+else:
+    plusRecoveredNum = df_recovered_diff['Total'][0] - df_recovered_diff['Total'][index+1]
+    plusPercentNum2 = (df_recovered_diff['Total'][0] - df_recovered_diff['Total'][index+1])/df_recovered_diff['Total'][index]
 
 # Construct death case dataframe for line plot
 DateList = []
@@ -113,7 +181,7 @@ for key, df in dfs.items():
     DateList.append(df['Date_last_updated_AEDT'][0])
     ChinaList.append(dfTpm['Deaths'][0])
     OtherList.append(dfTpm['Deaths'][1:].sum())
-    
+
 df_deaths = pd.DataFrame({'Date':DateList,
                           'Mainland China':ChinaList,
                           'Other locations':OtherList})
@@ -122,8 +190,38 @@ df_deaths['date_day']=[d.date() for d in df_deaths['Date']]
 df_deaths=df_deaths.groupby(by='date_day', sort=False).transform(max).drop_duplicates(['Date'])
 df_deaths['Total']=df_deaths['Mainland China']+df_deaths['Other locations']
 df_deaths=df_deaths.reset_index(drop=True)
-plusDeathNum = df_deaths['Total'][0] - df_deaths['Total'][1]
-plusPercentNum3 = (df_deaths['Total'][0] - df_deaths['Total'][1])/df_deaths['Total'][1]
+
+# Construct new dataframe for 24-hour window case difference
+DateList = []
+ChinaList =[]
+OtherList = []
+
+for key, df in dfs.items():
+    dfTpm = df.groupby(['Country/Region'])['Deaths'].agg(np.sum)
+    dfTpm = pd.DataFrame({'Code':dfTpm.index, 'Deaths':dfTpm.values})
+    dfTpm = dfTpm.sort_values(by='Deaths', ascending=False).reset_index(drop=True)
+    DateList.append(df['Date_last_updated_AEDT'][0])
+    ChinaList.append(dfTpm['Deaths'][0])
+    OtherList.append(dfTpm['Deaths'][1:].sum())
+
+df_deaths_diff = pd.DataFrame({'Date':DateList,
+                                  'Mainland China':ChinaList,
+                                  'Other locations':OtherList})
+df_deaths_diff['Total']=df_deaths_diff['Mainland China']+df_deaths_diff['Other locations']
+
+# Calculate differenec in a 24-hour window
+for index, _ in df_deaths_diff.iterrows():
+    # Calculate the time differnece in hour
+    diff=(df_deaths_diff['Date'][0] - df_deaths_diff['Date'][index]).total_seconds()/3600
+    # find out the latest time after 24-hour
+    if diff >= 24:
+        break
+if diff > 24:
+    plusDeathNum = df_deaths_diff['Total'][0] - df_deaths_diff['Total'][index]
+    plusPercentNum3 = (df_deaths_diff['Total'][0] - df_deaths_diff['Total'][index])/df_deaths_diff['Total'][index]
+else:
+    plusDeathNum = df_deaths_diff['Total'][0] - df_deaths_diff['Total'][index+1]
+    plusPercentNum3 = (df_deaths_diff['Total'][0] - df_deaths_diff['Total'][index+1])/df_deaths_diff['Total'][index]
 
 # Create data table to show in app
 # Generate sum values for Country/Region level
@@ -152,16 +250,17 @@ daysOutbreak=(df_confirmed['Date'][0] - datetime.strptime('12/31/2019', '%m/%d/%
 #############################################################################################
 # Line plot for confirmed cases
 # Set up tick scale based on confirmed case number
-tickList = list(np.arange(0, df_confirmed['Mainland China'].max()+1000, 5000))
+tickList = list(np.arange(0, df_confirmed['Mainland China'].max()+1000, 10000))
 
 # Create empty figure canvas
 fig_confirmed = go.Figure()
 # Add trace to the figure
 fig_confirmed.add_trace(go.Scatter(x=df_confirmed['Date'], y=df_confirmed['Mainland China'],
                                    mode='lines+markers',
+                                   line_shape='spline',
                                    name='Mainland China',
                                    line=dict(color='#921113', width=3),
-                                   marker=dict(size=8, color='#f4f4f2',
+                                   marker=dict(size=6, color='#f4f4f2',
                                                line=dict(width=1,color='#921113')),
                                    text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_confirmed['Date']],
                                    hovertext=['Mainland China confirmed<br>{:,d} cases<br>'.format(i) for i in df_confirmed['Mainland China']],
@@ -170,12 +269,13 @@ fig_confirmed.add_trace(go.Scatter(x=df_confirmed['Date'], y=df_confirmed['Mainl
                                                  '<extra></extra>'))
 fig_confirmed.add_trace(go.Scatter(x=df_confirmed['Date'], y=df_confirmed['Other locations'],
                                    mode='lines+markers',
+                                   line_shape='spline',
                                    name='Other Region',
                                    line=dict(color='#eb5254', width=3),
-                                   marker=dict(size=8, color='#f4f4f2',
+                                   marker=dict(size=6, color='#f4f4f2',
                                                line=dict(width=1,color='#eb5254')),
                                    text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_confirmed['Date']],
-                                   hovertext=['Other locations confirmed<br>{:,d} cases<br>'.format(i) for i in df_confirmed['Other locations']],
+                                   hovertext=['Other region confirmed<br>{:,d} cases<br>'.format(i) for i in df_confirmed['Other locations']],
                                    hovertemplate='<b>%{text}</b><br></br>'+
                                                  '%{hovertext}'+
                                                  '<extra></extra>'))
@@ -196,7 +296,7 @@ fig_confirmed.update_layout(
     yaxis=dict(
         showline=True, linecolor='#272e3e',
         zeroline=False,
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         tickmode='array',
         # Set tick range based on the maximum number
@@ -207,7 +307,7 @@ fig_confirmed.update_layout(
 #    yaxis_title="Total Confirmed Case Number",
     xaxis=dict(
         showline=True, linecolor='#272e3e',
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         zeroline=False
     ),
@@ -220,37 +320,39 @@ fig_confirmed.update_layout(
     font=dict(color='#292929')
 )
 
-# Line plot for recovered cases
+# Line plot for combine cases
 # Set up tick scale based on confirmed case number
-tickList = list(np.arange(0, df_recovered['Mainland China'].max()+100, 500))
+tickList = list(np.arange(0, df_recovered['Mainland China'].max()+200, 1000))
 
 # Create empty figure canvas
-fig_recovered = go.Figure()
+fig_combine = go.Figure()
 # Add trace to the figure
-fig_recovered.add_trace(go.Scatter(x=df_recovered['Date'], y=df_recovered['Mainland China'],
+fig_combine.add_trace(go.Scatter(x=df_recovered['Date'], y=df_recovered['Total'],
                                    mode='lines+markers',
-                                   name='Mainland China',
+                                   line_shape='spline',
+                                   name='Total Recovered Cases',
                                    line=dict(color='#168038', width=3),
-                                   marker=dict(size=8, color='#f4f4f2',
+                                   marker=dict(size=6, color='#f4f4f2',
                                                line=dict(width=1,color='#168038')),
                                    text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_recovered['Date']],
-                                   hovertext=['Mainland China recovered<br>{:,d} cases<br>'.format(i) for i in df_recovered['Mainland China']],
+                                   hovertext=['Total recovered<br>{:,d} cases<br>'.format(i) for i in df_recovered['Total']],
                                    hovertemplate='<b>%{text}</b><br></br>'+
                                                  '%{hovertext}'+
                                                  '<extra></extra>'))
-fig_recovered.add_trace(go.Scatter(x=df_recovered['Date'], y=df_recovered['Other locations'],
-                                   mode='lines+markers',
-                                   name='Other Region',
-                                   line=dict(color='#25d75d', width=3),
-                                   marker=dict(size=8, color='#f4f4f2',
-                                               line=dict(width=1,color='#25d75d')),
-                                   text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_recovered['Date']],
-                                   hovertext=['Other locations recovered<br>{:,d} cases<br>'.format(i) for i in df_recovered['Other locations']],
-                                   hovertemplate='<b>%{text}</b><br></br>'+
-                                                 '%{hovertext}'+
-                                                 '<extra></extra>'))
+fig_combine.add_trace(go.Scatter(x=df_deaths['Date'], y=df_deaths['Total'],
+                                mode='lines+markers',
+                                line_shape='spline',
+                                name='Total Death Cases',
+                                line=dict(color='#626262', width=3),
+                                marker=dict(size=6, color='#f4f4f2',
+                                            line=dict(width=1,color='#626262')),
+                                text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_deaths['Date']],
+                                hovertext=['Total death<br>{:,d} cases<br>'.format(i) for i in df_deaths['Total']],
+                                hovertemplate='<b>%{text}</b><br></br>'+
+                                              '%{hovertext}'+
+                                              '<extra></extra>'))
 # Customise layout
-fig_recovered.update_layout(
+fig_combine.update_layout(
     #title=dict(
     #    text="<b>Recovered Cases Timeline<b>",
     #    y=0.96, x=0.5, xanchor='center', yanchor='top',
@@ -266,18 +368,18 @@ fig_recovered.update_layout(
     yaxis=dict(
         showline=True, linecolor='#272e3e',
         zeroline=False,
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         tickmode='array',
         # Set tick range based on the maximum number
         tickvals=tickList,
         # Set tick label accordingly
-        ticktext=['{:.0f}'.format(i) for i in tickList]
+        ticktext=["{:.0f}k".format(i/1000) for i in tickList]
     ),
 #    yaxis_title="Total Recovered Case Number",
     xaxis=dict(
         showline=True, linecolor='#272e3e',
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         zeroline=False
     ),
@@ -290,42 +392,40 @@ fig_recovered.update_layout(
     font=dict(color='#292929')
 )
 
-# Line plot for deaths cases
+# Line plot for death rate cases
 # Set up tick scale based on confirmed case number
-tickList = list(np.arange(0, df_deaths['Mainland China'].max()+100, 200))
+tickList = list(np.arange(0, (df_deaths['Mainland China']/df_confirmed['Mainland China']*100).max(), 0.5))
 
 # Create empty figure canvas
-fig_deaths = go.Figure()
+fig_rate = go.Figure()
 # Add trace to the figure
-fig_deaths.add_trace(go.Scatter(x=df_deaths['Date'], y=df_deaths['Mainland China'],
+fig_rate.add_trace(go.Scatter(x=df_deaths['Date'], y=df_deaths['Mainland China']/df_confirmed['Mainland China']*100,
                                 mode='lines+markers',
+                                line_shape='spline',
                                 name='Mainland China',
                                 line=dict(color='#626262', width=3),
-                                marker=dict(size=8, color='#f4f4f2',
+                                marker=dict(size=6, color='#f4f4f2',
                                             line=dict(width=1,color='#626262')),
                                 text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_deaths['Date']],
-                                hovertext=['Mainland China death<br>{:,d} cases<br>'.format(i) for i in df_deaths['Mainland China']],
+                                hovertext=['Mainland China death rate<br>{:.2f}%'.format(i) for i in df_deaths['Mainland China']/df_confirmed['Mainland China']*100],
                                 hovertemplate='<b>%{text}</b><br></br>'+
                                               '%{hovertext}'+
                                               '<extra></extra>'))
-fig_deaths.add_trace(go.Scatter(x=df_deaths['Date'], y=df_deaths['Other locations'],
+fig_rate.add_trace(go.Scatter(x=df_deaths['Date'], y=df_deaths['Other locations']/df_confirmed['Other locations']*100,
                                 mode='lines+markers',
+                                line_shape='spline',
                                 name='Other Region',
                                 line=dict(color='#a7a7a7', width=3),
-                                marker=dict(size=8, color='#f4f4f2',
+                                marker=dict(size=6, color='#f4f4f2',
                                             line=dict(width=1,color='#a7a7a7')),
                                 text=[datetime.strftime(d, '%b %d %Y AEDT') for d in df_deaths['Date']],
-                                hovertext=['Other locations death<br>{:,d} cases<br>'.format(i) for i in df_deaths['Other locations']],
+                                hovertext=['Other region death rate<br>{:.2f}%'.format(i) for i in df_deaths['Other locations']/df_confirmed['Other locations']*100],
                                 hovertemplate='<b>%{text}</b><br></br>'+
                                               '%{hovertext}'+
                                               '<extra></extra>'))
+
 # Customise layout
-fig_deaths.update_layout(
-#    title=dict(
-#        text="<b>Death Cases Timeline<b>",
-#        y=0.96, x=0.5, xanchor='center', yanchor='top',
-#        font=dict(size=20, color="#292929", family="Playfair Display")
-#    ),
+fig_rate.update_layout(
     margin=go.layout.Margin(
         l=10,
         r=10,
@@ -336,18 +436,18 @@ fig_deaths.update_layout(
     yaxis=dict(
         showline=True, linecolor='#272e3e',
         zeroline=False,
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         tickmode='array',
         # Set tick range based on the maximum number
         tickvals=tickList,
         # Set tick label accordingly
-        ticktext=['{:.0f}'.format(i) for i in tickList]
+        ticktext=['{:.1f}'.format(i) for i in tickList]
     ),
 #    yaxis_title="Total Death Case Number",
     xaxis=dict(
         showline=True, linecolor='#272e3e',
-        gridcolor='#cbd2d3',
+        gridcolor='rgba(203, 210, 211,.3)',
         gridwidth = .1,
         zeroline=False
     ),
@@ -364,7 +464,7 @@ fig_deaths.update_layout(
 #### Start dash app
 ##################################################################################################
 
-app = dash.Dash(__name__, 
+app = dash.Dash(__name__,
                 assets_folder='./assets/',
                 meta_tags=[
                     {"name": "viewport", "content": "width=device-width, height=device-height, initial-scale=1.0"}
@@ -376,13 +476,13 @@ app.index_string = """<!DOCTYPE html>
 <html>
     <head>
         <!-- Global site tag (gtag.js) - Google Analytics -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-154901818-2"></script>
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-158614507-1"></script>
         <script>
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
 
-          gtag('config', 'UA-154901818-2');
+          gtag('config', 'UA-158614507-1');
         </script>
         {%metas%}
         <title>{%title%}</title>
@@ -405,20 +505,22 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
     children=[
         html.Div(
             id="header",
-            children=[                          
-                html.H4(children="Coronavirus (2019-nCoV) Outbreak Global Cases Monitor"),
+            children=[
+                html.H4(children="Coronavirus (COVID-19) Outbreak Global Cases Monitor"),
                 html.P(
                     id="description",
-                    children="On Dec 31, 2019, the World Health Organization (WHO) was informed of \
-                    an outbreak of “pneumonia of unknown cause” detected in Wuhan City, Hubei Province, China – the \
-                    seventh-largest city in China with 11 million residents. As of {}, there are over {:,d} cases \
-                    of 2019-nCoV confirmed globally.\
-                    This dash board is developed to visualise and track the recent reported \
-                    cases on a daily timescale.".format(latestDate, confirmedCases),
+                    children="As of {}, there are over {:,d} cases \
+                              of COVID-19 confirmed globally.".format(latestDate, confirmedCases)
+                ),
+                html.P(
+                	id="note",
+                	children='⚠️ Surge in number of comfirmed cases and deaths due to the adoption of a new diagnosis classification.\
+                              In conformity with other provinces, starting Feb 13, 2020, Hubei Province will include the number of clinically \
+                              diagnosed cases into the number of confirmed cases.'
                 ),
                 html.P(style={'fontWeight':'bold'},
                     children="Last updated on {}.".format(latestDate))
-            ]        
+            ]
         ),
         html.Div(
             id="number-plate",
@@ -432,11 +534,11 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                                  'fontWeight':'bold','color':'#2674f6'},
                                                children=[
                                                    html.P(style={'color':'#cbd2d3','padding':'.5rem'},
-                                                              children='xxxx xxxx xxxxxxxxx xxxxx'),
+                                                              children='xxxx xx xxx xxxx xxx xxxxx'),
                                                    '{}'.format(daysOutbreak),
                                                ]),
                                   html.H5(style={'textAlign':'center','color':'#2674f6','padding':'.1rem'},
-                                               children="Days Since Outbreak")                                        
+                                               children="Days Since Outbreak")
                                        ]),
                      html.Div(
                          style={'width':'24.4%','backgroundColor':'#cbd2d3','display':'inline-block',
@@ -446,11 +548,11 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                                  'fontWeight':'bold','color':'#d7191c'},
                                                 children=[
                                                     html.P(style={'padding':'.5rem'},
-                                                              children='+ {:,d} from yesterday ({:.1%})'.format(plusConfirmedNum, plusPercentNum1)),
+                                                              children='+ {:,d} in the past 24h ({:.1%})'.format(plusConfirmedNum, plusPercentNum1)),
                                                     '{:,d}'.format(confirmedCases)
                                                          ]),
                                   html.H5(style={'textAlign':'center','color':'#d7191c','padding':'.1rem'},
-                                               children="Confirmed Cases")                                        
+                                               children="Confirmed Cases")
                                        ]),
                      html.Div(
                          style={'width':'24.4%','backgroundColor':'#cbd2d3','display':'inline-block',
@@ -460,11 +562,11 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                                        'fontWeight':'bold','color':'#1a9622'},
                                                children=[
                                                    html.P(style={'padding':'.5rem'},
-                                                              children='+ {:,d} from yesterday ({:.1%})'.format(plusRecoveredNum, plusPercentNum2)),
+                                                              children='+ {:,d} in the past 24h ({:.1%})'.format(plusRecoveredNum, plusPercentNum2)),
                                                    '{:,d}'.format(recoveredCases),
                                                ]),
                                   html.H5(style={'textAlign':'center','color':'#1a9622','padding':'.1rem'},
-                                               children="Recovered Cases")                                        
+                                               children="Recovered Cases")
                                        ]),
                      html.Div(
                          style={'width':'24.4%','backgroundColor':'#cbd2d3','display':'inline-block',
@@ -474,11 +576,11 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                                        'fontWeight':'bold','color':'#6c6c6c'},
                                                 children=[
                                                     html.P(style={'padding':'.5rem'},
-                                                              children='+ {:,d} from yesterday ({:.1%})'.format(plusDeathNum, plusPercentNum3)),
+                                                              children='+ {:,d} in the past 24h ({:.1%})'.format(plusDeathNum, plusPercentNum3)),
                                                     '{:,d}'.format(deathsCases)
                                                 ]),
                                   html.H5(style={'textAlign':'center','color':'#6c6c6c','padding':'.1rem'},
-                                               children="Death Cases")                                        
+                                               children="Death Cases")
                                        ])
                           ]),
         html.Div(
@@ -497,15 +599,15 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                               children=[
                                   html.H5(style={'textAlign':'center','backgroundColor':'#cbd2d3',
                                                  'color':'#292929','padding':'1rem','marginBottom':'0'},
-                                               children='Recovered Case Timeline'),
-                                  dcc.Graph(style={'height':'300px'},figure=fig_recovered)]),
+                                               children='Recovered/Death Case Timeline'),
+                                  dcc.Graph(style={'height':'300px'},figure=fig_combine)]),
                      html.Div(
                          style={'width':'32.79%','display':'inline-block','verticalAlign':'top'},
                               children=[
                                   html.H5(style={'textAlign':'center','backgroundColor':'#cbd2d3',
                                                  'color':'#292929','padding':'1rem','marginBottom':'0'},
-                                               children='Death Case Timeline'),
-                                  dcc.Graph(style={'height':'300px'},figure=fig_deaths)])]),
+                                               children='Death Rate (%) Timeline'),
+                                  dcc.Graph(style={'height':'300px'},figure=fig_rate)])]),
         html.Div(
             id='dcc-map',
             style={'marginLeft':'1.5%','marginRight':'1.5%','marginBottom':'.5%'},
@@ -539,16 +641,17 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                           'font_family':'Arial',
                                           'font_size':'1.5rem',
                                           'padding':'.1rem',
-                                          'backgroundColor':'#f4f4f2'
+                                          'backgroundColor':'#f4f4f2',
                                       },
                                       fixed_rows={'headers':True,'data':0},
+                                      style_table={
+                                          'maxHeight':'500px',
+                                          #'overflowY':'scroll',
+                                          'overflowX':'scroll',
+                                      },
                                       style_header={
                                         'backgroundColor':'#f4f4f2',
                                         'fontWeight':'bold'},
-                                      style_table={
-                                          'maxHeight':'500px',
-                                          'overflowX':'scroll',
-                                      },
                                       style_cell_conditional=[
                                           {'if': {'column_id':'Country/Regions'},'width':'40%'},
                                           {'if': {'column_id':'Confirmed'},'width':'20%'},
@@ -569,7 +672,7 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
                                       html.A('Dingxiangyuan, ', href='https://ncov.dxy.cn/ncovh5/view/pneumonia?sce\
                                       ne=2&clicktime=1579582238&enterid=1579582238&from=singlemessage&isappinstalled=0'),
                                       html.A('Tencent News, ', href='https://news.qq.com//zt2020/page/feiyan.htm#charts'),
-                                      'and ', 
+                                      'and ',
                                       html.A('JHU CSSE', href='https://docs.google.com/spreadsheets/d/1yZv9w9z\
                                       RKwrGTaR-YzmAqMefw4wMlaXocejdxZaTs6w/htmlview?usp=sharing&sle=true#'),
                                       " | 🙏 Pray for China, Pray for the World 🙏 |",
@@ -583,21 +686,26 @@ app.layout = html.Div(style={'backgroundColor':'#f4f4f2'},
 )
 
 def update_figures(derived_virtual_selected_rows):
-    # When the table is first rendered, `derived_virtual_selected_rows` will
-    # be `None`. This is due to an idiosyncracy in Dash (unsupplied properties 
-    # are always None and Dash calls the dependent callbacks when the component is first rendered).
-    
+    # When the table is first rendered, `derived_virtual_data` and
+    # `derived_virtual_selected_rows` will be `None`. This is due to an
+    # idiosyncracy in Dash (unsupplied properties are always None and Dash
+    # calls the dependent callbacks when the component is first rendered).
+    # So, if `rows` is `None`, then the component was just rendered
+    # and its value will be the same as the component's dataframe.
+    # Instead of setting `None` in here, you could also set
+    # `derived_virtual_data=df.to_rows('dict')` when you initialize
+    # the component.
     if derived_virtual_selected_rows is None:
         derived_virtual_selected_rows = []
-        
+
     dff = dfSum
-        
-    mapbox_access_token = "pk.eyJ1IjoicGxvdGx5bWFwYm94IiwiYSI6ImNqdnBvNDMyaTAxYzkzeW5ubWdpZ2VjbmMifQ.TXcBE-xg9BFdV2ocecc_7g"
+
+    mapbox_access_token = "pk.eyJ1IjoiZW1tYW1waHVvbmciLCJhIjoiY2s2b2dlbWs5MWI5eTNqa2docTY0M251cSJ9.a4E1ICbSW2ELR0tt_0-SKQ"
 
     # Generate a list for hover text display
     textList=[]
     for area, region in zip(dfs[keyList[0]]['Province/State'], dfs[keyList[0]]['Country/Region']):
-        
+
         if type(area) is str:
             if region == "Hong Kong" or region == "Macau" or region == "Taiwan":
                 textList.append(area)
@@ -612,7 +720,7 @@ def update_figures(derived_virtual_selected_rows):
         mode='markers',
         marker=go.scattermapbox.Marker(
             color='#ca261d',
-            size=dfs[keyList[0]]['Confirmed'].tolist(), 
+            size=dfs[keyList[0]]['Confirmed'].tolist(),
             sizemin=4,
             sizemode='area',
             sizeref=2.*max(dfs[keyList[0]]['Confirmed'].tolist())/(150.**2),
@@ -637,7 +745,7 @@ def update_figures(derived_virtual_selected_rows):
             # The direction you're facing, measured clockwise as an angle from true north on a compass
             bearing=0,
             center=go.layout.mapbox.Center(
-                lat=3.684188 if len(derived_virtual_selected_rows)==0 else dff['lat'][derived_virtual_selected_rows[0]], 
+                lat=3.684188 if len(derived_virtual_selected_rows)==0 else dff['lat'][derived_virtual_selected_rows[0]],
                 lon=148.374024 if len(derived_virtual_selected_rows)==0 else dff['lon'][derived_virtual_selected_rows[0]]
             ),
             pitch=0,
@@ -648,5 +756,4 @@ def update_figures(derived_virtual_selected_rows):
     return fig2
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
-
+    app.run_server(debug=False, port=8080)

@@ -48,7 +48,7 @@ for key, df in dfs.items():
 # Add coordinates for each area in the list for the latest table sheet
 # To save time, coordinates calling was done seperately
 # Import the data with coordinates
-dfs[keyList[0]]=pd.read_csv('{}_data.csv'.format(keyList[0]))
+dfs[keyList[0]]=pd.read_csv('./data/{}_data.csv'.format(keyList[0]))
 
 # Save numbers into variables to use in the app
 confirmedCases=dfs[keyList[0]]['Confirmed'].sum()
@@ -750,4 +750,4 @@ def update_figures(derived_virtual_selected_rows):
     return fig2
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server(debug=False, port=8080)
