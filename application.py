@@ -16,12 +16,6 @@ import dash_html_components as html
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 
-app = dash.Dash(__name__)
-
-app.scripts.config.serve_locally = True
-app.css.config.serve_locally = True
-
-
 ################################################################################
 #### Data processing
 ################################################################################
